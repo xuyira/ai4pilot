@@ -1,5 +1,8 @@
 export type FlightConfigSet = {
   mass: number;
+  cruiseSpeed: number;
+  minCruiseSpeed: number;
+  targetSpeedStepRate: number;
   linearResponseK: number;
   angularResponseK: number;
   maxForwardSpeed: number;
@@ -47,10 +50,13 @@ export type FlightConfigName = "light" | "medium" | "heavy";
 const presets: Record<FlightConfigName, FlightConfigSet> = {
   light: {
     mass: 0.75,
+    cruiseSpeed: 150,
+    minCruiseSpeed: 78,
+    targetSpeedStepRate: 120,
     linearResponseK: 14,
     angularResponseK: 16,
     maxForwardSpeed: 260,
-    maxReverseSpeed: 44,
+    maxReverseSpeed: 0,
     forwardAcceleration: 120,
     brakeAcceleration: 130,
     boostAcceleration: 190,
@@ -72,10 +78,13 @@ const presets: Record<FlightConfigName, FlightConfigSet> = {
   },
   medium: {
     mass: 1.0,
+    cruiseSpeed: 140,
+    minCruiseSpeed: 70,
+    targetSpeedStepRate: 90,
     linearResponseK: 10,
     angularResponseK: 12,
     maxForwardSpeed: 220,
-    maxReverseSpeed: 40,
+    maxReverseSpeed: 0,
     forwardAcceleration: 90,
     brakeAcceleration: 110,
     boostAcceleration: 160,
@@ -97,10 +106,13 @@ const presets: Record<FlightConfigName, FlightConfigSet> = {
   },
   heavy: {
     mass: 1.8,
+    cruiseSpeed: 125,
+    minCruiseSpeed: 62,
+    targetSpeedStepRate: 65,
     linearResponseK: 7,
     angularResponseK: 8,
     maxForwardSpeed: 190,
-    maxReverseSpeed: 34,
+    maxReverseSpeed: 0,
     forwardAcceleration: 76,
     brakeAcceleration: 98,
     boostAcceleration: 130,

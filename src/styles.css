@@ -1,6 +1,6 @@
 :root {
   color: #e8f3ff;
-  background: #020611;
+  background: #09111a;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
 
@@ -19,8 +19,8 @@ body,
 
 body {
   background:
-    radial-gradient(circle at top, rgba(32, 79, 158, 0.22), transparent 38%),
-    linear-gradient(180deg, #020611 0%, #071224 58%, #09162e 100%);
+    radial-gradient(circle at top, rgba(72, 110, 148, 0.16), transparent 32%),
+    linear-gradient(180deg, #09111a 0%, #0f1822 54%, #131d27 100%);
 }
 
 canvas {
@@ -34,22 +34,66 @@ canvas {
 }
 
 .hud-panel {
-  position: absolute;
-  border: 1px solid rgba(145, 205, 255, 0.28);
-  background: rgba(4, 14, 28, 0.46);
-  backdrop-filter: blur(10px);
-  box-shadow: inset 0 0 24px rgba(117, 200, 255, 0.08);
+  border: 1px solid rgba(154, 179, 198, 0.24);
+  background:
+    linear-gradient(180deg, rgba(17, 26, 34, 0.86), rgba(10, 17, 24, 0.76));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 18px 40px rgba(0, 0, 0, 0.22);
 }
 
-.hud-title {
+.hud-topline {
+  position: absolute;
   top: 18px;
   left: 18px;
-  padding: 14px 16px;
-  min-width: 260px;
+  right: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.hud-brand {
+  padding: 14px 16px 12px;
+  min-width: 360px;
+  border-top: 2px solid rgba(255, 183, 77, 0.9);
+  background:
+    linear-gradient(180deg, rgba(20, 29, 38, 0.92), rgba(12, 18, 25, 0.82));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 16px 34px rgba(0, 0, 0, 0.24);
+}
+
+.hud-banner {
+  min-width: 220px;
+  padding: 12px 14px 10px;
+  border-top: 2px solid rgba(255, 183, 77, 0.9);
+  background:
+    linear-gradient(180deg, rgba(20, 29, 38, 0.92), rgba(12, 18, 25, 0.82));
+  text-align: right;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 16px 34px rgba(0, 0, 0, 0.24);
+}
+
+.hud-banner-label {
+  display: block;
+  color: #8ea3b6;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hud-banner-value {
+  display: block;
+  margin-top: 4px;
+  color: #ffd08a;
+  font-size: 20px;
+  font-weight: 700;
 }
 
 .eyebrow {
-  color: #79b5ff;
+  color: #95aabd;
   font-size: 11px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -57,53 +101,152 @@ canvas {
 
 .headline {
   margin-top: 6px;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
 }
 
-.hud-stats {
+.hud-left {
+  position: absolute;
   bottom: 18px;
   left: 18px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(100px, 1fr));
-  gap: 12px 18px;
-  padding: 16px;
-  min-width: 280px;
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
 }
 
-.hud-stats span {
-  display: block;
-  color: #79b5ff;
+.hud-primary {
+  min-width: 320px;
+  padding: 16px;
+}
+
+.stat-block span,
+.stat-grid span,
+.sys-row span {
+  color: #869daf;
   font-size: 11px;
   letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-.hud-stats strong {
+.stat-speed strong {
+  display: block;
+  margin-top: 4px;
+  color: #f4f8fb;
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.stat-speed em {
   display: block;
   margin-top: 6px;
+  color: #ffbe66;
+  font-style: normal;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(110px, 1fr));
+  gap: 14px 18px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.stat-grid strong,
+.sys-row strong {
+  display: block;
+  margin-top: 6px;
+  color: #e7eff6;
   font-size: 24px;
   font-weight: 700;
 }
 
+.hud-secondary {
+  min-width: 220px;
+  padding: 16px;
+}
+
+.sys-row {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sys-row:last-child {
+  border-bottom: 0;
+}
+
+.sys-row strong {
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+
 .hud-help {
+  position: absolute;
   right: 18px;
   bottom: 18px;
-  max-width: 440px;
+  max-width: 460px;
   padding: 14px 16px;
-  color: #b0c9e7;
-  font-size: 13px;
-  line-height: 1.5;
+  border-top: 2px solid rgba(255, 183, 77, 0.9);
+  color: #b3c1cd;
+  font-size: 12px;
+  line-height: 1.6;
+  background:
+    linear-gradient(180deg, rgba(20, 29, 38, 0.9), rgba(12, 18, 25, 0.8));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 16px 34px rgba(0, 0, 0, 0.24);
 }
 
 .reticle {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 20px;
-  height: 20px;
-  border: 1px solid rgba(132, 214, 255, 0.75);
+  width: 130px;
+  height: 130px;
+  transform: translate(-50%, -50%);
+}
+
+.reticle-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(255, 208, 138, 0.95);
   transform: translate(-50%, -50%) rotate(45deg);
-  box-shadow: 0 0 16px rgba(130, 214, 255, 0.35);
+  box-shadow: 0 0 16px rgba(255, 183, 77, 0.2);
+}
+
+.reticle-ring {
+  position: absolute;
+  inset: 28px;
+  border: 1px solid rgba(157, 175, 191, 0.38);
+  border-radius: 50%;
+}
+
+.reticle-cross {
+  position: absolute;
+  background: rgba(182, 197, 210, 0.3);
+}
+
+.reticle-cross-x {
+  top: 50%;
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+.reticle-cross-y {
+  left: 50%;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  transform: translateX(-50%);
 }
 
 .perf-overlay {
@@ -111,11 +254,12 @@ canvas {
   top: 18px;
   right: 18px;
   padding: 12px 14px;
-  border: 1px solid rgba(145, 205, 255, 0.28);
-  background: rgba(4, 14, 28, 0.52);
-  color: #bde1ff;
+  border: 1px solid rgba(154, 179, 198, 0.24);
+  background: rgba(18, 27, 35, 0.76);
+  color: #c4d0da;
   font: 12px/1.5 "IBM Plex Mono", monospace;
   pointer-events: none;
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.18);
 }
 
 .fallback-screen {

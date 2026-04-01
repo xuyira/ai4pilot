@@ -2,23 +2,25 @@ import GUI from "lil-gui";
 import {
   AmbientLight,
   BoxGeometry,
-  BufferGeometry,
   Color,
-  Float32BufferAttribute,
+  ConeGeometry,
+  CylinderGeometry,
+  DirectionalLight,
+  Fog,
+  Group,
   GridHelper,
-  LineBasicMaterial,
-  LineSegments,
   Matrix4,
   Mesh,
-  MeshBasicMaterial,
+  MeshStandardMaterial,
   PerspectiveCamera,
   Scene,
+  TorusGeometry,
   Vector3,
   WebGLRenderer,
 } from "three";
 import { flightConfig, getPreset, type FlightConfigName } from "./config/flight";
-import { createFlightController, type FlightController } from "./core/physics/flightController";
 import { InputController } from "./core/input/inputController";
+import { createFlightController, type FlightController } from "./core/physics/flightController";
 import { createHud } from "./ui/hud";
 import { createPerfOverlay, type PerfOverlay } from "./ui/perfOverlay";
 
@@ -31,13 +33,11 @@ const CAMERA_TARGET = new Vector3();
 const LOOK_POINT = new Vector3();
 const CAMERA_FORWARD = new Vector3();
 const LOOK_MATRIX = new Matrix4();
-
-type ParticleField = {
-  geometry: BufferGeometry;
-  positions: Float32Array;
-  lineLength: number;
-  lineCount: number;
-};
+const VELOCITY_LOOK = new Vector3();
+const LOCAL_CAMERA_OFFSET = new Vector3();
+const SHIP_DRIFT = new Vector3();
+const FORWARD_LOOK = new Vector3();
+const UP_LOOK = new Vector3();
 
 export class App {
   private readonly renderer: WebGLRenderer;
@@ -48,9 +48,8 @@ export class App {
   private readonly hud: ReturnType<typeof createHud>;
   private readonly perfOverlay: PerfOverlay;
   private readonly gui: GUI;
-  private readonly ship: Mesh;
-  private readonly speedLines: LineSegments;
-  private readonly particleField: ParticleField;
+  private readonly ship: Group;
+  private readonly arenaRefs: Group;
   private readonly config = flightConfig;
   private accumulator = 0;
   private previousTime = 0;
@@ -63,13 +62,14 @@ export class App {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
     this.scene = new Scene();
-    this.scene.background = new Color(0x020611);
+    this.scene.background = new Color(0x0b1218);
+    this.scene.fog = new Fog(0x0b1218, 150, 1250);
 
     this.camera = new PerspectiveCamera(
       this.config.camera.baseFov,
       window.innerWidth / window.innerHeight,
       0.1,
-      1600,
+      2400,
     );
 
     this.root.append(this.renderer.domElement);
@@ -80,18 +80,23 @@ export class App {
     this.perfOverlay = createPerfOverlay(this.root);
     this.gui = new GUI({ title: "Flight Debug" });
 
-    this.scene.add(new AmbientLight(0xffffff, 1.2));
-    this.scene.add(new GridHelper(240, 48, 0x1b3d6d, 0x0e1a2f));
+    this.scene.add(new AmbientLight(0xc9d7e2, 0.95));
+    const sun = new DirectionalLight(0xd6e5ef, 2.15);
+    sun.position.set(18, 22, 10);
+    this.scene.add(sun);
+    const rim = new DirectionalLight(0xffc17a, 0.65);
+    rim.position.set(-12, 8, -20);
+    this.scene.add(rim);
+
+    const groundGrid = new GridHelper(1800, 120, 0x395c70, 0x162432);
+    groundGrid.position.y = -2.2;
+    this.scene.add(groundGrid);
 
     this.ship = this.createShip();
     this.scene.add(this.ship);
 
-    this.particleField = this.createParticleField();
-    this.speedLines = new LineSegments(
-      this.particleField.geometry,
-      new LineBasicMaterial({ color: 0x9fd0ff, transparent: true, opacity: 0.9 }),
-    );
-    this.scene.add(this.speedLines);
+    this.arenaRefs = this.createArenaReferences();
+    this.scene.add(this.arenaRefs);
 
     this.setupGui();
     this.handleResize = this.handleResize.bind(this);
@@ -112,43 +117,154 @@ export class App {
   }
 
   private createShip() {
-    const geometry = new BoxGeometry(0.8, 0.35, 2.6);
-    geometry.translate(0, 0, -0.2);
-    const material = new MeshBasicMaterial({ color: 0x55e8ff, wireframe: true });
-    return new Mesh(geometry, material);
+    const ship = new Group();
+
+    const hullMaterial = new MeshStandardMaterial({
+      color: 0x7f95a7,
+      emissive: 0x111c28,
+      emissiveIntensity: 0.35,
+      flatShading: true,
+      metalness: 0.38,
+      roughness: 0.5,
+    });
+    const accentMaterial = new MeshStandardMaterial({
+      color: 0xd7e4ee,
+      emissive: 0x30404f,
+      emissiveIntensity: 0.35,
+      flatShading: true,
+      metalness: 0.18,
+      roughness: 0.35,
+    });
+    const engineMaterial = new MeshStandardMaterial({
+      color: 0xffd3a0,
+      emissive: 0xff9f3f,
+      emissiveIntensity: 1.25,
+      flatShading: true,
+      metalness: 0,
+      roughness: 0.3,
+    });
+
+    const fuselage = new Mesh(new BoxGeometry(0.9, 0.42, 3.2), hullMaterial);
+    fuselage.position.z = -0.2;
+    ship.add(fuselage);
+
+    const nose = new Mesh(new ConeGeometry(0.42, 1.15, 5), accentMaterial);
+    nose.rotation.x = Math.PI / 2;
+    nose.position.z = -2.15;
+    ship.add(nose);
+
+    const cockpit = new Mesh(new BoxGeometry(0.45, 0.22, 0.8), accentMaterial);
+    cockpit.position.set(0, 0.28, -0.65);
+    ship.add(cockpit);
+
+    const wingLeft = new Mesh(new BoxGeometry(2.6, 0.08, 0.9), hullMaterial);
+    wingLeft.position.set(-1.05, -0.02, -0.2);
+    wingLeft.rotation.z = 0.08;
+    ship.add(wingLeft);
+
+    const wingRight = wingLeft.clone();
+    wingRight.position.x = 1.05;
+    wingRight.rotation.z = -0.08;
+    ship.add(wingRight);
+
+    const tail = new Mesh(new BoxGeometry(0.22, 0.9, 0.55), hullMaterial);
+    tail.position.set(0, 0.45, 1.15);
+    ship.add(tail);
+
+    const stabilizerLeft = new Mesh(new BoxGeometry(1.1, 0.08, 0.42), hullMaterial);
+    stabilizerLeft.position.set(-0.46, 0.16, 1.1);
+    stabilizerLeft.rotation.z = 0.2;
+    ship.add(stabilizerLeft);
+
+    const stabilizerRight = stabilizerLeft.clone();
+    stabilizerRight.position.x = 0.46;
+    stabilizerRight.rotation.z = -0.2;
+    ship.add(stabilizerRight);
+
+    const engineLeft = new Mesh(new CylinderGeometry(0.09, 0.12, 0.42, 8), engineMaterial);
+    engineLeft.rotation.x = Math.PI / 2;
+    engineLeft.position.set(-0.24, -0.06, 1.72);
+    ship.add(engineLeft);
+
+    const engineRight = engineLeft.clone();
+    engineRight.position.x = 0.24;
+    ship.add(engineRight);
+
+    ship.rotation.order = "YXZ";
+    return ship;
   }
 
-  private createParticleField(): ParticleField {
-    const lineCount = this.config.effects.speedLineCount;
-    const lineLength = this.config.effects.speedLineLength;
-    const positions = new Float32Array(lineCount * 2 * 3);
-    const geometry = new BufferGeometry();
+  private createArenaReferences() {
+    const group = new Group();
+    const pylonMaterial = new MeshStandardMaterial({
+      color: 0x3b4d5c,
+      emissive: 0x121e28,
+      emissiveIntensity: 0.25,
+      flatShading: true,
+      roughness: 0.8,
+    });
+    const accentMaterial = new MeshStandardMaterial({
+      color: 0xffc17a,
+      emissive: 0xb96d17,
+      emissiveIntensity: 0.55,
+      flatShading: true,
+      roughness: 0.4,
+    });
+    const slabMaterial = new MeshStandardMaterial({
+      color: 0x202d39,
+      emissive: 0x0b141b,
+      emissiveIntensity: 0.18,
+      flatShading: true,
+      roughness: 0.9,
+    });
 
-    for (let i = 0; i < lineCount; i += 1) {
-      this.resetParticle(i, positions);
+    for (let i = 0; i < 20; i += 1) {
+      const slab = new Mesh(new BoxGeometry(180, 4, 40), slabMaterial);
+      slab.position.set(0, -6.6, -i * 110 - 40);
+      group.add(slab);
     }
 
-    geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
-    return { geometry, positions, lineLength, lineCount };
-  }
+    for (let lane = -2; lane <= 2; lane += 1) {
+      for (let i = 0; i < 16; i += 1) {
+        const pylon = new Mesh(new BoxGeometry(5.5, 12 + (i % 3) * 5, 5.5), pylonMaterial);
+        pylon.position.set(lane * 40 + ((i % 2) * 8 - 4), 0.5, -i * 115 - 70);
+        group.add(pylon);
+      }
+    }
 
-  private resetParticle(index: number, positions: Float32Array) {
-    const radius = this.config.effects.speedLineSpawnRadius;
-    const x = (Math.random() - 0.5) * radius * 2;
-    const y = (Math.random() - 0.5) * radius * 1.2;
-    const z = -Math.random() * 90;
-    const offset = index * 6;
-    positions[offset] = x;
-    positions[offset + 1] = y;
-    positions[offset + 2] = z;
-    positions[offset + 3] = x;
-    positions[offset + 4] = y;
-    positions[offset + 5] = z + this.config.effects.speedLineLength;
+    for (let i = 0; i < 10; i += 1) {
+      const gate = new Mesh(new TorusGeometry(11 + (i % 2) * 2, 0.9, 10, 24), accentMaterial);
+      gate.position.set(((i % 3) - 1) * 26, 8.5 + (i % 2) * 2.5, -i * 180 - 120);
+      gate.rotation.x = Math.PI / 2;
+      group.add(gate);
+
+      const leftWall = new Mesh(new BoxGeometry(6, 20, 10), pylonMaterial);
+      leftWall.position.set(gate.position.x - 18, 1, gate.position.z);
+      group.add(leftWall);
+
+      const rightWall = leftWall.clone();
+      rightWall.position.x = gate.position.x + 18;
+      group.add(rightWall);
+    }
+
+    return group;
   }
 
   private setupGui() {
     const flightFolder = this.gui.addFolder("Flight");
     flightFolder.add(this.config.flight, "mass", 0.6, 2.5, 0.01).onChange(this.syncFlightConfig);
+    flightFolder
+      .add(this.config.flight, "cruiseSpeed", 80, 220, 1)
+      .name("cruise")
+      .onChange(this.syncFlightConfig);
+    flightFolder
+      .add(this.config.flight, "minCruiseSpeed", 40, 120, 1)
+      .name("min cruise")
+      .onChange(this.syncFlightConfig);
+    flightFolder
+      .add(this.config.flight, "targetSpeedStepRate", 30, 180, 1)
+      .name("speed step")
+      .onChange(this.syncFlightConfig);
     flightFolder
       .add(this.config.flight, "linearResponseK", 4, 18, 0.1)
       .name("linear K")
@@ -159,7 +275,11 @@ export class App {
       .onChange(this.syncFlightConfig);
     flightFolder
       .add(this.config.flight, "forwardAcceleration", 40, 180, 1)
-      .name("thrust")
+      .name("accel")
+      .onChange(this.syncFlightConfig);
+    flightFolder
+      .add(this.config.flight, "brakeAcceleration", 50, 220, 1)
+      .name("brake")
       .onChange(this.syncFlightConfig);
     flightFolder.add(this.config.flight, "forwardDrag", 0.05, 0.5, 0.01).onChange(this.syncFlightConfig);
     flightFolder.add(this.config.flight, "lateralDrag", 0.6, 2.5, 0.05).onChange(this.syncFlightConfig);
@@ -224,11 +344,11 @@ export class App {
     this.ship.quaternion.copy(state.orientation);
 
     this.updateCamera(dt);
-    this.updateSpeedLines(dt);
   }
 
   private updateCamera(dt: number) {
     const state = this.controller.getState();
+    const inputState = this.input.getState();
     const speedRatio = Math.min(state.speed / this.config.camera.speedForMaxFov, 1);
     const targetFov =
       this.config.camera.baseFov +
@@ -237,16 +357,30 @@ export class App {
     this.camera.fov += (targetFov - this.camera.fov) * fovBlend;
     this.camera.updateProjectionMatrix();
 
-    CAMERA_OFFSET.set(0, this.config.camera.cameraFollowHeight, this.config.camera.cameraFollowDistance);
-    CAMERA_OFFSET.applyQuaternion(state.orientation);
-    CAMERA_OFFSET.multiplyScalar(1);
+    LOCAL_CAMERA_OFFSET.set(
+      -inputState.yaw * 1.2,
+      this.config.camera.cameraFollowHeight + 0.6 + speedRatio * 0.55,
+      this.config.camera.cameraFollowDistance + 2.8 + speedRatio * 2.4,
+    );
+    CAMERA_OFFSET.copy(LOCAL_CAMERA_OFFSET).applyQuaternion(state.orientation);
     CAMERA_TARGET.copy(state.position).add(CAMERA_OFFSET);
+
+    SHIP_DRIFT.copy(state.right).multiplyScalar(-inputState.yaw * 1.35);
+    CAMERA_TARGET.add(SHIP_DRIFT);
 
     const cameraBlend = 1 - Math.exp(-this.config.camera.cameraPositionLagK * dt);
     this.camera.position.lerp(CAMERA_TARGET, cameraBlend);
 
-    const forward = state.forward.clone().multiplyScalar(18);
-    const lookTarget = LOOK_POINT.copy(state.position).add(forward);
+    VELOCITY_LOOK.copy(state.velocity);
+    if (VELOCITY_LOOK.lengthSq() < 0.0001) {
+      VELOCITY_LOOK.copy(state.forward);
+    } else {
+      VELOCITY_LOOK.normalize();
+    }
+
+    FORWARD_LOOK.copy(state.forward).multiplyScalar(18);
+    UP_LOOK.copy(state.up).multiplyScalar(1.2);
+    const lookTarget = LOOK_POINT.copy(state.position).add(FORWARD_LOOK).add(UP_LOOK).add(VELOCITY_LOOK.multiplyScalar(8));
     const lookBlend = 1 - Math.exp(-this.config.camera.cameraLookLagK * dt);
 
     const currentForward = CAMERA_FORWARD.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
@@ -255,50 +389,23 @@ export class App {
     this.camera.quaternion.setFromRotationMatrix(LOOK_MATRIX);
   }
 
-  private updateSpeedLines(dt: number) {
-    const state = this.controller.getState();
-    const speedRatio = Math.min(state.speed / this.config.camera.speedForMaxFov, 1);
-    const moveSpeed =
-      30 + state.speed * this.config.effects.speedLineSpeedFactor + 40 * speedRatio;
-    const positions = this.particleField.positions;
-    const radius = this.config.effects.speedLineSpawnRadius;
-    const resetZ = 5;
-    const farZ = -90;
-
-    for (let i = 0; i < this.particleField.lineCount; i += 1) {
-      const offset = i * 6;
-      positions[offset + 2] += moveSpeed * dt;
-      positions[offset + 5] += moveSpeed * dt;
-
-      if (positions[offset + 2] > resetZ) {
-        positions[offset] = (Math.random() - 0.5) * radius * 2;
-        positions[offset + 1] = (Math.random() - 0.5) * radius * 1.2;
-        positions[offset + 2] = farZ - Math.random() * 20;
-        positions[offset + 3] = positions[offset];
-        positions[offset + 4] = positions[offset + 1];
-        positions[offset + 5] = positions[offset + 2] + this.particleField.lineLength;
-      }
-    }
-
-    this.speedLines.position.copy(this.camera.position);
-    this.speedLines.quaternion.copy(this.camera.quaternion);
-    this.particleField.geometry.attributes.position.needsUpdate = true;
-  }
-
   private updateHud(simulationCost: number) {
     const state = this.controller.getState();
     this.hud.update({
       speed: state.speed,
+      targetSpeed: state.targetForwardSpeed,
+      throttlePercent: state.throttleLevel * 100,
       driftAngleDeg: state.driftAngleDeg,
       altitude: state.position.y,
       presetMass: this.config.flight.mass,
-      keysHint: "W/S 推进刹车, A/D 偏航, 鼠标或方向键俯仰/横滚, Shift 冲刺",
+      status: state.isCrashed ? "CRASH" : "FLY",
+      keysHint: "W/S 调目标速度, A/D 偏航, 方向键俯仰, Q/E 横滚, Space 空气刹车, Shift 冲刺",
     });
     this.perfOverlay.update({
       fps: Math.round(this.fps),
       simMs: simulationCost,
       drawCalls: this.renderer.info.render.calls,
-      speedLines: this.particleField.lineCount,
+      speedLines: 0,
     });
   }
 

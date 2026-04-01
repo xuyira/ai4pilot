@@ -10,7 +10,13 @@
 2. 相机参数
 3. 速度感参数
 4. 战斗参数
-5. 调试与性能参数
+5. 调试、性能与行为参数
+
+当前产品方向补充如下：
+
+1. 游戏为偏竞技街机，不是飞行模拟。
+2. 飞行器默认持续前进，玩家主要管理速度区间与姿态。
+3. 参数设计应服务于“决策优先”的玩法，不应制造多余飞控负担。
 
 ## 2. 参数设计原则
 
@@ -21,14 +27,31 @@
 
 ## 3. 飞行参数
 
+本项目的速度控制建议基于以下链路：
+
+```text
+speedAdjustInput -> targetForwardSpeed / throttleLevel -> currentForwardSpeed -> worldVelocity
+```
+
+因此，飞行参数要优先区分：
+
+1. 巡航速度
+2. 玩家调速能力
+3. 刹车能力
+4. 高速稳定性
+5. 低速边界
+
 | 参数名 | 默认值 | 建议范围 | 作用 | 调大效果 | 调小效果 | 风险 |
 |---|---:|---:|---|---|---|---|
 | `mass` | 1.0 | 0.6 - 2.5 | 模拟质量，影响加减速和姿态响应 | 更重、更钝、更稳 | 更轻、更灵、更飘 | 过小会过于敏感 |
+| `cruiseSpeed` | 140 | 80 - 220 | 默认巡航速度 | 常态更快，节奏更紧 | 常态更稳，更易瞄准 | 过高压缩新手反应时间 |
+| `minCruiseSpeed` | 70 | 40 - 120 | 允许的最低战术速度 | 不易停滞，维持节奏 | 更允许低速修正 | 过低会接近悬停 |
+| `targetSpeedStepRate` | 90 | 30 - 180 | `W / S` 调整目标速度的变化率 | 调速更直接 | 调速更平缓 | 过高像档位跳变 |
 | `linearResponseK` | 10.0 | 4 - 18 | 线性输入平滑强度 | 更跟手 | 更柔和 | 过大像瞬时输入 |
 | `angularResponseK` | 12.0 | 5 - 22 | 角速度输入平滑强度 | 转向更直接 | 转向更顺滑 | 过大易生硬 |
 | `maxForwardSpeed` | 220 | 120 - 420 | 最大前进速度 | 更快，更有冲刺感 | 更慢，更可控 | 过高会压缩反应时间 |
-| `maxReverseSpeed` | 40 | 0 - 80 | 最大反向速度 | 更易后撤修正 | 后退更弱 | 过高破坏前冲节奏 |
-| `forwardAcceleration` | 90 | 40 - 180 | 前向推进加速度 | 提速更猛 | 起步更沉 | 过高会难调 FOV |
+| `maxReverseSpeed` | 0 | 0 - 20 | 最大反向速度 | 更易后撤修正 | 更强调前冲节奏 | 首版过高会破坏竞技语义 |
+| `forwardAcceleration` | 90 | 40 - 180 | 从巡航向更高速度区间加速的能力 | 提速更猛 | 起步更沉 | 过高会难调 FOV |
 | `brakeAcceleration` | 110 | 50 - 220 | 主动减速强度 | 收速更快 | 惯性更强 | 过大像空气刹车 |
 | `boostAcceleration` | 160 | 100 - 260 | 冲刺额外加速度 | 冲刺更明显 | 冲刺存在感弱 | 过高影响战斗可读性 |
 | `forwardDrag` | 0.18 | 0.05 - 0.4 | 前向阻力 | 更容易降速 | 更容易长距离滑行 | 过低会失控 |
@@ -83,6 +106,14 @@
 
 ## 7. 战斗参数
 
+战斗参数需要配合“决策优先”的设计目标。
+
+推荐原则：
+
+1. 击杀不能太快，否则难以体现路线和时机选择。
+2. 也不能太慢，否则玩家会把战斗感知成纯追逐。
+3. 锁定和副武器应奖励良好决策，而不是代替玩家决策。
+
 | 参数名 | 默认值 | 建议范围 | 作用 | 调大效果 | 调小效果 | 风险 |
 |---|---:|---:|---|---|---|---|
 | `maxHp` | 100 | 50 - 250 | 最大生命值 | 更耐打 | 更脆 | 过高拖慢节奏 |
@@ -100,6 +131,8 @@
 
 ## 8. AI 参数
 
+AI 应采用与玩家一致的巡航/调速语义，避免出现脚本式瞬时速度变化。
+
 | 参数名 | 默认值 | 建议范围 | 作用 | 调大效果 | 调小效果 | 风险 |
 |---|---:|---:|---|---|---|---|
 | `aiAggression` | 0.7 | 0.2 - 1.2 | 进攻倾向 | 更主动贴脸 | 更保守 | 过高容易送死 |
@@ -107,7 +140,7 @@
 | `aiEvadeStrength` | 0.55 | 0.1 - 1.0 | 躲避强度 | 更会规避 | 更直来直去 | 过高像作弊 |
 | `aiRepathInterval` | 0.4 | 0.1 - 1.5 | 重算目标间隔 | 更灵活 | 更迟钝 | 过低浪费性能 |
 
-## 9. 调试与性能参数
+## 9. 调试、性能与行为参数
 
 | 参数名 | 默认值 | 建议范围 | 作用 | 备注 |
 |---|---:|---:|---|---|
@@ -117,6 +150,10 @@
 | `debugFlightVectors` | `false` | boolean | 显示前/上/速度向量 | 调飞行手感时有用 |
 | `debugCollisionShapes` | `false` | boolean | 显示碰撞体 | 调命中检测时有用 |
 | `qualityPreset` | `medium` | low/high | 视觉质量档位 | 控制粒子与后处理 |
+| `telemetryEnabled` | `true` | boolean | 是否开启行为事件记录 | 开发期默认开启 |
+| `decisionWindowMs` | 2500 | 800 - 5000 | 关键决策窗口时长 | 用于统计是否及时选择目标或路线 |
+| `reactionWindowMs` | 800 | 150 - 1500 | 反应窗口时长 | 用于测算威胁响应延迟 |
+| `focusSampleHz` | 10 | 2 - 30 | 专注相关连续采样频率 | 过高会增加日志量 |
 
 ## 10. 预设建议
 
@@ -126,6 +163,9 @@
 
 ```text
 mass = 0.75
+cruiseSpeed = 150
+minCruiseSpeed = 78
+targetSpeedStepRate = 120
 linearResponseK = 14
 angularResponseK = 16
 forwardDrag = 0.12
@@ -140,6 +180,9 @@ driftMaxAngleDeg = 35
 
 ```text
 mass = 1.0
+cruiseSpeed = 140
+minCruiseSpeed = 70
+targetSpeedStepRate = 90
 linearResponseK = 10
 angularResponseK = 12
 forwardDrag = 0.18
@@ -154,6 +197,9 @@ driftMaxAngleDeg = 28
 
 ```text
 mass = 1.8
+cruiseSpeed = 125
+minCruiseSpeed = 62
+targetSpeedStepRate = 65
 linearResponseK = 7
 angularResponseK = 8
 forwardDrag = 0.26
@@ -167,12 +213,14 @@ driftMaxAngleDeg = 18
 不要同时乱调所有参数，按以下顺序进行：
 
 1. 先定 `mass`
-2. 再定 `linearResponseK` 与 `angularResponseK`
-3. 再定 `forwardAcceleration`、`brakeAcceleration`
-4. 再定 `forwardDrag`、`lateralDrag`、`verticalDrag`
-5. 再定 `maxBankAngleDeg`、`bankingLiftFactor`
-6. 再定 `driftMaxAngleDeg` 与回正参数
-7. 最后调 `baseFov`、`maxFov`、粒子与后处理
+2. 再定 `cruiseSpeed`、`minCruiseSpeed`
+3. 再定 `targetSpeedStepRate`
+4. 再定 `linearResponseK` 与 `angularResponseK`
+5. 再定 `forwardAcceleration`、`brakeAcceleration`
+6. 再定 `forwardDrag`、`lateralDrag`、`verticalDrag`
+7. 再定 `maxBankAngleDeg`、`bankingLiftFactor`
+8. 再定 `driftMaxAngleDeg` 与回正参数
+9. 最后调 `baseFov`、`maxFov`、粒子与后处理
 
 ## 12. 高风险参数组合
 
@@ -180,10 +228,11 @@ driftMaxAngleDeg = 18
 
 1. `angularResponseK` 很高，同时 `yawRate` 很高
    - 结果：机体过于敏感，难以瞄准
-2. `forwardDrag` 很低，同时 `driftMaxAngleDeg` 很高
+2. `cruiseSpeed` 很低，同时 `minCruiseSpeed` 很低
+   - 结果：战斗容易滑向低速盘旋，破坏竞技节奏
+3. `forwardDrag` 很低，同时 `driftMaxAngleDeg` 很高
    - 结果：高速下持续侧滑，几乎无法回正
-3. `maxFov` 很高，同时 `radialBlurStrength` 很高
+4. `maxFov` 很高，同时 `radialBlurStrength` 很高
    - 结果：速度感强，但战斗可读性下降
-4. `bankingLiftFactor` 很高，同时 `maxBankAngleDeg` 很高
+5. `bankingLiftFactor` 很高，同时 `maxBankAngleDeg` 很高
    - 结果：转向像被轨道吸附，失去漂浮感
-

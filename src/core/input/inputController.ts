@@ -1,5 +1,5 @@
 export type InputState = {
-  throttle: number;
+  speedAdjust: number;
   yaw: number;
   pitch: number;
   roll: number;
@@ -8,7 +8,7 @@ export type InputState = {
 };
 
 const INITIAL_INPUT: InputState = {
-  throttle: 0,
+  speedAdjust: 0,
   yaw: 0,
   pitch: 0,
   roll: 0,
@@ -32,14 +32,14 @@ export class InputController {
   }
 
   getState(): InputState {
-    const throttle = Number(this.isPressed("KeyW")) - Number(this.isPressed("KeyS"));
+    const speedAdjust = Number(this.isPressed("KeyW")) - Number(this.isPressed("KeyS"));
     const yaw = Number(this.isPressed("KeyD")) - Number(this.isPressed("KeyA"));
     const pitch = Number(this.isPressed("ArrowDown")) - Number(this.isPressed("ArrowUp"));
     const roll = Number(this.isPressed("KeyE")) - Number(this.isPressed("KeyQ"));
 
     return {
       ...INITIAL_INPUT,
-      throttle,
+      speedAdjust,
       yaw,
       pitch,
       roll,

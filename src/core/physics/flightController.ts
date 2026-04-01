@@ -8,11 +8,16 @@ type FlightState = {
   acceleration: Vector3;
   orientation: Quaternion;
   angularVelocity: Vector3;
+  throttleLevel: number;
+  targetForwardSpeed: number;
+  forwardSpeed: number;
   forward: Vector3;
   right: Vector3;
   up: Vector3;
   speed: number;
   driftAngleDeg: number;
+  isCrashed: boolean;
+  crashTimer: number;
 };
 
 const FORWARD = new Vector3(0, 0, -1);
@@ -25,9 +30,14 @@ const THRUST = new Vector3();
 const BANK_FORCE = new Vector3();
 const DRIFT_CORRECTION = new Vector3();
 const EULER = new Euler(0, 0, 0, "YXZ");
+const ORIENTATION_EULER = new Euler(0, 0, 0, "YXZ");
 const DELTA_QUATERNION = new Quaternion();
 const LOOK_DIRECTION = new Vector3();
+const ORIENTATION_INVERSE = new Quaternion();
 const ZERO = new Vector3();
+const CRASH_RESET_TIME = 1.1;
+const HOVER_Y = 8;
+const GROUND_LEVEL = -2.2;
 
 export type FlightController = ReturnType<typeof createFlightController>;
 
@@ -35,15 +45,20 @@ export function createFlightController(initialConfig: FlightConfigSet) {
   const config = { ...initialConfig };
   const state: FlightState = {
     position: new Vector3(0, 8, 0),
-    velocity: new Vector3(0, 0, -25),
+    velocity: new Vector3(0, 0, -config.cruiseSpeed),
     acceleration: new Vector3(),
     orientation: new Quaternion(),
     angularVelocity: new Vector3(),
+    throttleLevel: config.cruiseSpeed / config.maxForwardSpeed,
+    targetForwardSpeed: config.cruiseSpeed,
+    forwardSpeed: config.cruiseSpeed,
     forward: new Vector3(0, 0, -1),
     right: new Vector3(1, 0, 0),
     up: new Vector3(0, 1, 0),
-    speed: 25,
+    speed: config.cruiseSpeed,
     driftAngleDeg: 0,
+    isCrashed: false,
+    crashTimer: 0,
   };
 
   let driftTimer = 0;
@@ -51,9 +66,23 @@ export function createFlightController(initialConfig: FlightConfigSet) {
   const api = {
     applyConfig(nextConfig: FlightConfigSet) {
       Object.assign(config, nextConfig);
+      state.targetForwardSpeed = MathUtils.clamp(
+        state.targetForwardSpeed,
+        config.minCruiseSpeed,
+        config.maxForwardSpeed,
+      );
+      state.throttleLevel = state.targetForwardSpeed / config.maxForwardSpeed;
     },
 
     update(dt: number, input: InputState) {
+      if (state.isCrashed) {
+        state.crashTimer = Math.max(0, state.crashTimer - dt);
+        if (state.crashTimer === 0) {
+          resetFlightState(state, config);
+        }
+        return;
+      }
+
       const massScale = 1 / config.mass;
       const speed = state.velocity.length();
       const speedRatio = Math.min(speed / config.maxForwardSpeed, 1);
@@ -63,7 +92,7 @@ export function createFlightController(initialConfig: FlightConfigSet) {
       const targetManualRoll = input.roll * config.rollRate;
       const targetAutoBank =
         MathUtils.degToRad(-input.yaw * config.maxBankAngleDeg * (0.4 + speedRatio * config.bankBySpeedFactor));
-      const currentRoll = new Euler().setFromQuaternion(state.orientation, "YXZ").z;
+      const currentRoll = ORIENTATION_EULER.setFromQuaternion(state.orientation, "YXZ").z;
       const targetRollRate = (targetAutoBank - currentRoll) * config.rollRate + targetManualRoll;
 
       state.angularVelocity.x = smoothTowards(
@@ -95,17 +124,35 @@ export function createFlightController(initialConfig: FlightConfigSet) {
 
       updateAxes(state);
 
-      let thrustAmount = input.throttle >= 0 ? input.throttle * config.forwardAcceleration : input.throttle * config.brakeAcceleration;
+      state.targetForwardSpeed = MathUtils.clamp(
+        state.targetForwardSpeed + input.speedAdjust * config.targetSpeedStepRate * dt,
+        config.minCruiseSpeed,
+        config.maxForwardSpeed,
+      );
+
+      let desiredForwardSpeed = state.targetForwardSpeed;
       if (input.brake) {
-        thrustAmount -= config.brakeAcceleration;
+        desiredForwardSpeed = config.minCruiseSpeed;
       }
-      if (input.boost && input.throttle > 0) {
-        thrustAmount += config.boostAcceleration;
+      if (input.boost) {
+        desiredForwardSpeed = Math.min(
+          config.maxForwardSpeed,
+          desiredForwardSpeed + config.boostAcceleration * 0.35,
+        );
       }
 
-      THRUST.copy(state.forward).multiplyScalar(thrustAmount * massScale);
+      ORIENTATION_INVERSE.copy(state.orientation).invert();
+      LOCAL_VELOCITY.copy(state.velocity).applyQuaternion(ORIENTATION_INVERSE);
+      state.forwardSpeed = Math.max(0, -LOCAL_VELOCITY.z);
 
-      LOCAL_VELOCITY.copy(state.velocity).applyQuaternion(state.orientation.clone().invert());
+      const speedError = desiredForwardSpeed - state.forwardSpeed;
+      const desiredForwardAcceleration =
+        speedError >= 0
+          ? Math.min(speedError * config.linearResponseK, config.forwardAcceleration)
+          : Math.max(speedError * config.linearResponseK, -config.brakeAcceleration);
+
+      THRUST.copy(state.forward).multiplyScalar(desiredForwardAcceleration * massScale);
+
       DRAG_LOCAL.set(
         -LOCAL_VELOCITY.x * config.lateralDrag,
         -LOCAL_VELOCITY.y * config.verticalDrag,
@@ -140,8 +187,7 @@ export function createFlightController(initialConfig: FlightConfigSet) {
         .add(BANK_FORCE)
         .add(DRIFT_CORRECTION);
 
-      const hoverY = 8;
-      const hoverError = hoverY - state.position.y;
+      const hoverError = HOVER_Y - state.position.y;
       state.acceleration.y += hoverError * config.hoverBalanceStrength * 0.1;
       state.acceleration.y += -state.velocity.y * config.hoverDamping * 0.2;
 
@@ -149,8 +195,14 @@ export function createFlightController(initialConfig: FlightConfigSet) {
       clampVelocity(state.velocity, state.orientation, config);
       state.position.addScaledVector(state.velocity, dt);
       state.speed = state.velocity.length();
+      state.throttleLevel = MathUtils.clamp(state.targetForwardSpeed / config.maxForwardSpeed, 0, 1);
 
-      if (input.throttle === 0 && input.roll === 0) {
+      if (state.position.y <= GROUND_LEVEL) {
+        triggerGroundCrash(state, config);
+        return;
+      }
+
+      if (input.speedAdjust === 0 && input.roll === 0) {
         state.angularVelocity.z = smoothTowards(
           state.angularVelocity.z,
           0,
@@ -179,11 +231,41 @@ function updateAxes(state: FlightState) {
 }
 
 function clampVelocity(velocity: Vector3, orientation: Quaternion, config: FlightConfigSet) {
-  LOCAL_VELOCITY.copy(velocity).applyQuaternion(orientation.clone().invert());
-  LOCAL_VELOCITY.z = MathUtils.clamp(LOCAL_VELOCITY.z, -config.maxReverseSpeed, config.maxForwardSpeed);
+  ORIENTATION_INVERSE.copy(orientation).invert();
+  LOCAL_VELOCITY.copy(velocity).applyQuaternion(ORIENTATION_INVERSE);
+  LOCAL_VELOCITY.z = MathUtils.clamp(LOCAL_VELOCITY.z, -config.maxForwardSpeed, config.maxReverseSpeed);
   velocity.copy(LOCAL_VELOCITY.applyQuaternion(orientation));
 
   if (velocity.lengthSq() < 0.0001) {
     velocity.copy(ZERO);
   }
+}
+
+function triggerGroundCrash(state: FlightState, config: FlightConfigSet) {
+  state.isCrashed = true;
+  state.crashTimer = CRASH_RESET_TIME;
+  state.speed = 0;
+  state.forwardSpeed = 0;
+  state.throttleLevel = 0;
+  state.position.y = GROUND_LEVEL;
+  state.velocity.copy(ZERO);
+  state.acceleration.copy(ZERO);
+  state.angularVelocity.copy(ZERO);
+  state.targetForwardSpeed = config.cruiseSpeed;
+}
+
+function resetFlightState(state: FlightState, config: FlightConfigSet) {
+  state.isCrashed = false;
+  state.crashTimer = 0;
+  state.position.set(0, HOVER_Y, state.position.z);
+  state.velocity.set(0, 0, -config.cruiseSpeed);
+  state.acceleration.copy(ZERO);
+  state.angularVelocity.copy(ZERO);
+  state.orientation.identity();
+  updateAxes(state);
+  state.targetForwardSpeed = config.cruiseSpeed;
+  state.forwardSpeed = config.cruiseSpeed;
+  state.throttleLevel = config.cruiseSpeed / config.maxForwardSpeed;
+  state.speed = config.cruiseSpeed;
+  state.driftAngleDeg = 0;
 }
