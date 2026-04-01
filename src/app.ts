@@ -8,12 +8,12 @@ import {
   DirectionalLight,
   Fog,
   Group,
-  GridHelper,
   Matrix4,
   Mesh,
   MeshStandardMaterial,
   PerspectiveCamera,
   Scene,
+  SphereGeometry,
   TorusGeometry,
   Vector3,
   WebGLRenderer,
@@ -38,6 +38,101 @@ const LOCAL_CAMERA_OFFSET = new Vector3();
 const SHIP_DRIFT = new Vector3();
 const FORWARD_LOOK = new Vector3();
 const UP_LOOK = new Vector3();
+const ENVIRONMENT_COLOR = new Color();
+
+const CHUNK_LENGTH = 180;
+const ACTIVE_CHUNK_COUNT = 10;
+const RECYCLE_DISTANCE = 2;
+const THEME_SPAN = 3;
+
+type RunwayTheme = "city" | "canyon" | "forest";
+
+type RunwayChunk = {
+  group: Group;
+  chunkIndex: number;
+  theme: RunwayTheme;
+};
+
+type ThemePalette = {
+  background: number;
+  fog: number;
+  platform: number;
+  lane: number;
+  edge: number;
+  ring: number;
+  accent: number;
+  side: number;
+  detail: number;
+};
+
+const THEME_PALETTES: Record<RunwayTheme, ThemePalette> = {
+  city: {
+    background: 0x7bc1d1,
+    fog: 0xbfe6ef,
+    platform: 0xca4b2d,
+    lane: 0xfff3de,
+    edge: 0x8fe5ff,
+    ring: 0xff9d3d,
+    accent: 0xe26a3f,
+    side: 0xe8f2f6,
+    detail: 0x2f4d63,
+  },
+  canyon: {
+    background: 0xb8d06d,
+    fog: 0xe1bc68,
+    platform: 0x7b2a18,
+    lane: 0xf7fcff,
+    edge: 0x98efff,
+    ring: 0xffd43a,
+    accent: 0xd46f31,
+    side: 0xc86334,
+    detail: 0x5d1f10,
+  },
+  forest: {
+    background: 0xcde5ec,
+    fog: 0x8fd0ef,
+    platform: 0xe04f21,
+    lane: 0xf6f8f2,
+    edge: 0xeef8ff,
+    ring: 0xffd57d,
+    accent: 0x2a9b56,
+    side: 0x5fd36e,
+    detail: 0x163d24,
+  },
+};
+
+const SHIP_HULL_MATERIAL = new MeshStandardMaterial({
+  color: 0xf2f5f7,
+  emissive: 0x172838,
+  emissiveIntensity: 0.2,
+  flatShading: true,
+  metalness: 0.18,
+  roughness: 0.32,
+});
+const SHIP_ACCENT_MATERIAL = new MeshStandardMaterial({
+  color: 0xff6f3a,
+  emissive: 0x7a2412,
+  emissiveIntensity: 0.38,
+  flatShading: true,
+  metalness: 0.05,
+  roughness: 0.45,
+});
+const SHIP_DARK_MATERIAL = new MeshStandardMaterial({
+  color: 0x23384a,
+  emissive: 0x0b141d,
+  emissiveIntensity: 0.24,
+  flatShading: true,
+  metalness: 0.2,
+  roughness: 0.55,
+});
+const SHIP_ENGINE_MATERIAL = new MeshStandardMaterial({
+  color: 0xfff3d9,
+  emissive: 0xffb354,
+  emissiveIntensity: 1.6,
+  flatShading: true,
+  metalness: 0,
+  roughness: 0.2,
+});
 
 export class App {
   private readonly renderer: WebGLRenderer;
@@ -49,12 +144,14 @@ export class App {
   private readonly perfOverlay: PerfOverlay;
   private readonly gui: GUI;
   private readonly ship: Group;
-  private readonly arenaRefs: Group;
+  private readonly runwayRoot: Group;
+  private readonly runwayChunks: RunwayChunk[] = [];
   private readonly config = flightConfig;
   private accumulator = 0;
   private previousTime = 0;
   private animationFrame = 0;
   private fps = 0;
+  private currentTheme: RunwayTheme = "city";
 
   constructor(private readonly root: HTMLDivElement) {
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -62,14 +159,14 @@ export class App {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
     this.scene = new Scene();
-    this.scene.background = new Color(0x0b1218);
-    this.scene.fog = new Fog(0x0b1218, 150, 1250);
+    this.scene.background = new Color(THEME_PALETTES.city.background);
+    this.scene.fog = new Fog(THEME_PALETTES.city.fog, 110, 1180);
 
     this.camera = new PerspectiveCamera(
       this.config.camera.baseFov,
       window.innerWidth / window.innerHeight,
       0.1,
-      2400,
+      2600,
     );
 
     this.root.append(this.renderer.domElement);
@@ -80,23 +177,20 @@ export class App {
     this.perfOverlay = createPerfOverlay(this.root);
     this.gui = new GUI({ title: "Flight Debug" });
 
-    this.scene.add(new AmbientLight(0xc9d7e2, 0.95));
-    const sun = new DirectionalLight(0xd6e5ef, 2.15);
-    sun.position.set(18, 22, 10);
+    this.scene.add(new AmbientLight(0xf2f0ea, 1.15));
+    const sun = new DirectionalLight(0xfff2d8, 2.2);
+    sun.position.set(18, 24, 12);
     this.scene.add(sun);
-    const rim = new DirectionalLight(0xffc17a, 0.65);
-    rim.position.set(-12, 8, -20);
+    const rim = new DirectionalLight(0xa8ecff, 0.7);
+    rim.position.set(-14, 10, -24);
     this.scene.add(rim);
 
-    const groundGrid = new GridHelper(1800, 120, 0x395c70, 0x162432);
-    groundGrid.position.y = -2.2;
-    this.scene.add(groundGrid);
+    this.runwayRoot = new Group();
+    this.scene.add(this.runwayRoot);
+    this.initializeRunway();
 
     this.ship = this.createShip();
     this.scene.add(this.ship);
-
-    this.arenaRefs = this.createArenaReferences();
-    this.scene.add(this.arenaRefs);
 
     this.setupGui();
     this.handleResize = this.handleResize.bind(this);
@@ -116,138 +210,301 @@ export class App {
     this.gui.destroy();
   }
 
+  private initializeRunway() {
+    for (let index = 0; index < ACTIVE_CHUNK_COUNT; index += 1) {
+      const group = new Group();
+      this.runwayRoot.add(group);
+      const chunk: RunwayChunk = { group, chunkIndex: index, theme: "city" };
+      this.rebuildChunk(chunk, index);
+      this.runwayChunks.push(chunk);
+    }
+  }
+
   private createShip() {
     const ship = new Group();
 
-    const hullMaterial = new MeshStandardMaterial({
-      color: 0x7f95a7,
-      emissive: 0x111c28,
-      emissiveIntensity: 0.35,
-      flatShading: true,
-      metalness: 0.38,
-      roughness: 0.5,
-    });
-    const accentMaterial = new MeshStandardMaterial({
-      color: 0xd7e4ee,
-      emissive: 0x30404f,
-      emissiveIntensity: 0.35,
-      flatShading: true,
-      metalness: 0.18,
-      roughness: 0.35,
-    });
-    const engineMaterial = new MeshStandardMaterial({
-      color: 0xffd3a0,
-      emissive: 0xff9f3f,
-      emissiveIntensity: 1.25,
-      flatShading: true,
-      metalness: 0,
-      roughness: 0.3,
-    });
-
-    const fuselage = new Mesh(new BoxGeometry(0.9, 0.42, 3.2), hullMaterial);
-    fuselage.position.z = -0.2;
+    const fuselage = new Mesh(new BoxGeometry(1.25, 0.34, 3.7), SHIP_HULL_MATERIAL);
+    fuselage.position.z = -0.1;
     ship.add(fuselage);
 
-    const nose = new Mesh(new ConeGeometry(0.42, 1.15, 5), accentMaterial);
+    const nose = new Mesh(new ConeGeometry(0.46, 1.45, 5), SHIP_ACCENT_MATERIAL);
     nose.rotation.x = Math.PI / 2;
-    nose.position.z = -2.15;
+    nose.position.z = -2.48;
     ship.add(nose);
 
-    const cockpit = new Mesh(new BoxGeometry(0.45, 0.22, 0.8), accentMaterial);
-    cockpit.position.set(0, 0.28, -0.65);
-    ship.add(cockpit);
+    const canopy = new Mesh(new BoxGeometry(0.52, 0.25, 1.05), SHIP_DARK_MATERIAL);
+    canopy.position.set(0, 0.22, -0.78);
+    ship.add(canopy);
 
-    const wingLeft = new Mesh(new BoxGeometry(2.6, 0.08, 0.9), hullMaterial);
-    wingLeft.position.set(-1.05, -0.02, -0.2);
-    wingLeft.rotation.z = 0.08;
+    const intake = new Mesh(new BoxGeometry(0.7, 0.18, 1.05), SHIP_DARK_MATERIAL);
+    intake.position.set(0, -0.18, 0.6);
+    ship.add(intake);
+
+    const wingLeft = new Mesh(new BoxGeometry(3.7, 0.08, 1.18), SHIP_HULL_MATERIAL);
+    wingLeft.position.set(-1.5, -0.06, -0.12);
+    wingLeft.rotation.z = 0.12;
+    wingLeft.rotation.y = -0.12;
     ship.add(wingLeft);
 
     const wingRight = wingLeft.clone();
-    wingRight.position.x = 1.05;
-    wingRight.rotation.z = -0.08;
+    wingRight.position.x = 1.5;
+    wingRight.rotation.z = -0.12;
+    wingRight.rotation.y = 0.12;
     ship.add(wingRight);
 
-    const tail = new Mesh(new BoxGeometry(0.22, 0.9, 0.55), hullMaterial);
-    tail.position.set(0, 0.45, 1.15);
+    const forwardFinLeft = new Mesh(new BoxGeometry(0.72, 0.05, 1.2), SHIP_ACCENT_MATERIAL);
+    forwardFinLeft.position.set(-0.82, 0.02, -1.44);
+    forwardFinLeft.rotation.z = -0.28;
+    ship.add(forwardFinLeft);
+
+    const forwardFinRight = forwardFinLeft.clone();
+    forwardFinRight.position.x = 0.82;
+    forwardFinRight.rotation.z = 0.28;
+    ship.add(forwardFinRight);
+
+    const tail = new Mesh(new BoxGeometry(0.24, 0.95, 0.82), SHIP_DARK_MATERIAL);
+    tail.position.set(0, 0.48, 1.2);
     ship.add(tail);
 
-    const stabilizerLeft = new Mesh(new BoxGeometry(1.1, 0.08, 0.42), hullMaterial);
-    stabilizerLeft.position.set(-0.46, 0.16, 1.1);
-    stabilizerLeft.rotation.z = 0.2;
+    const stabilizerLeft = new Mesh(new BoxGeometry(1.45, 0.08, 0.5), SHIP_HULL_MATERIAL);
+    stabilizerLeft.position.set(-0.58, 0.14, 1.2);
+    stabilizerLeft.rotation.z = 0.22;
     ship.add(stabilizerLeft);
 
     const stabilizerRight = stabilizerLeft.clone();
-    stabilizerRight.position.x = 0.46;
-    stabilizerRight.rotation.z = -0.2;
+    stabilizerRight.position.x = 0.58;
+    stabilizerRight.rotation.z = -0.22;
     ship.add(stabilizerRight);
 
-    const engineLeft = new Mesh(new CylinderGeometry(0.09, 0.12, 0.42, 8), engineMaterial);
+    const engineLeft = new Mesh(new CylinderGeometry(0.1, 0.16, 0.56, 8), SHIP_ENGINE_MATERIAL);
     engineLeft.rotation.x = Math.PI / 2;
-    engineLeft.position.set(-0.24, -0.06, 1.72);
+    engineLeft.position.set(-0.28, -0.04, 2.05);
     ship.add(engineLeft);
 
     const engineRight = engineLeft.clone();
-    engineRight.position.x = 0.24;
+    engineRight.position.x = 0.28;
     ship.add(engineRight);
 
+    const engineGlowLeft = new Mesh(new SphereGeometry(0.14, 8, 8), SHIP_ENGINE_MATERIAL);
+    engineGlowLeft.position.set(-0.28, -0.04, 2.34);
+    ship.add(engineGlowLeft);
+
+    const engineGlowRight = engineGlowLeft.clone();
+    engineGlowRight.position.x = 0.28;
+    ship.add(engineGlowRight);
+
+    ship.scale.setScalar(1.7);
     ship.rotation.order = "YXZ";
     return ship;
   }
 
-  private createArenaReferences() {
-    const group = new Group();
-    const pylonMaterial = new MeshStandardMaterial({
-      color: 0x3b4d5c,
-      emissive: 0x121e28,
-      emissiveIntensity: 0.25,
-      flatShading: true,
-      roughness: 0.8,
-    });
-    const accentMaterial = new MeshStandardMaterial({
-      color: 0xffc17a,
-      emissive: 0xb96d17,
-      emissiveIntensity: 0.55,
-      flatShading: true,
-      roughness: 0.4,
-    });
-    const slabMaterial = new MeshStandardMaterial({
-      color: 0x202d39,
-      emissive: 0x0b141b,
-      emissiveIntensity: 0.18,
-      flatShading: true,
-      roughness: 0.9,
-    });
+  private rebuildChunk(chunk: RunwayChunk, chunkIndex: number) {
+    this.disposeChunk(chunk.group);
+    chunk.group.clear();
 
-    for (let i = 0; i < 20; i += 1) {
-      const slab = new Mesh(new BoxGeometry(180, 4, 40), slabMaterial);
-      slab.position.set(0, -6.6, -i * 110 - 40);
-      group.add(slab);
+    const theme = this.getThemeForChunkIndex(chunkIndex);
+    const palette = THEME_PALETTES[theme];
+    chunk.theme = theme;
+    chunk.chunkIndex = chunkIndex;
+    chunk.group.position.set(0, 0, -chunkIndex * CHUNK_LENGTH);
+
+    const baseWidth = theme === "canyon" ? 36 : theme === "city" ? 48 : 42;
+    const shoulderWidth = theme === "forest" ? 150 : 120;
+
+    const floorMaterial = makeMaterial(palette.platform, 0x101820, 0.9, 0.06);
+    const laneMaterial = makeMaterial(palette.lane, palette.lane, 0.2, 0.5);
+    const edgeMaterial = makeMaterial(palette.edge, palette.edge, 0.3, 0.6);
+    const sideMaterial = makeMaterial(palette.side, palette.detail, 0.8, 0.08);
+    const accentMaterial = makeMaterial(palette.accent, palette.accent, 0.55, 0.35);
+    const ringMaterial = makeMaterial(palette.ring, palette.ring, 0.35, 0.9);
+    const detailMaterial = makeMaterial(palette.detail, 0x091018, 0.9, 0.02);
+
+    const floor = new Mesh(new BoxGeometry(shoulderWidth, 4.4, CHUNK_LENGTH), floorMaterial);
+    floor.position.set(0, -8.6, -CHUNK_LENGTH * 0.5);
+    chunk.group.add(floor);
+
+    const runway = new Mesh(new BoxGeometry(baseWidth, 2.8, CHUNK_LENGTH - 10), floorMaterial);
+    runway.position.set(0, -5.8, -CHUNK_LENGTH * 0.5);
+    chunk.group.add(runway);
+
+    const laneLeft = new Mesh(new BoxGeometry(2.1, 0.16, CHUNK_LENGTH - 18), laneMaterial);
+    laneLeft.position.set(-baseWidth * 0.22, -4.3, -CHUNK_LENGTH * 0.5);
+    chunk.group.add(laneLeft);
+
+    const laneRight = laneLeft.clone();
+    laneRight.position.x = baseWidth * 0.22;
+    chunk.group.add(laneRight);
+
+    const edgeLeft = new Mesh(new BoxGeometry(0.48, 0.2, CHUNK_LENGTH - 16), edgeMaterial);
+    edgeLeft.position.set(-baseWidth * 0.5, -4.24, -CHUNK_LENGTH * 0.5);
+    chunk.group.add(edgeLeft);
+
+    const edgeRight = edgeLeft.clone();
+    edgeRight.position.x = baseWidth * 0.5;
+    chunk.group.add(edgeRight);
+
+    for (let i = 0; i < 3; i += 1) {
+      const z = -36 - i * 48;
+      const ring = new Mesh(new TorusGeometry(9.5, 0.82, 10, 28), ringMaterial);
+      ring.position.set(seededRange(chunkIndex * 21 + i, -8, 8), 8 + ((chunkIndex + i) % 2) * 1.5, z);
+      chunk.group.add(ring);
     }
 
-    for (let lane = -2; lane <= 2; lane += 1) {
-      for (let i = 0; i < 16; i += 1) {
-        const pylon = new Mesh(new BoxGeometry(5.5, 12 + (i % 3) * 5, 5.5), pylonMaterial);
-        pylon.position.set(lane * 40 + ((i % 2) * 8 - 4), 0.5, -i * 115 - 70);
-        group.add(pylon);
+    if (theme === "city") {
+      this.populateCityChunk(chunk.group, chunkIndex, baseWidth, sideMaterial, detailMaterial, accentMaterial);
+      return;
+    }
+    if (theme === "canyon") {
+      this.populateCanyonChunk(chunk.group, chunkIndex, baseWidth, sideMaterial, detailMaterial, accentMaterial);
+      return;
+    }
+    this.populateForestChunk(chunk.group, chunkIndex, baseWidth, sideMaterial, detailMaterial, accentMaterial);
+  }
+
+  private populateCityChunk(
+    group: Group,
+    chunkIndex: number,
+    baseWidth: number,
+    sideMaterial: MeshStandardMaterial,
+    detailMaterial: MeshStandardMaterial,
+    accentMaterial: MeshStandardMaterial,
+  ) {
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < 5; i += 1) {
+        const seed = chunkIndex * 31 + i * 11 + (side === -1 ? 3 : 7);
+        const width = seededRange(seed, 8, 18);
+        const depth = seededRange(seed + 1, 10, 18);
+        const height = seededRange(seed + 2, 18, 58);
+        const x = side * seededRange(seed + 3, baseWidth * 0.72, 70);
+        const z = -20 - i * 32 - seededRange(seed + 4, 0, 12);
+
+        const tower = new Mesh(new BoxGeometry(width, height, depth), sideMaterial);
+        tower.position.set(x, height * 0.5 - 6.4, z);
+        group.add(tower);
+
+        const crown = new Mesh(new BoxGeometry(width * 0.55, 2.2, depth * 0.55), accentMaterial);
+        crown.position.set(x, tower.position.y + height * 0.5 + 1.2, z);
+        group.add(crown);
       }
     }
 
-    for (let i = 0; i < 10; i += 1) {
-      const gate = new Mesh(new TorusGeometry(11 + (i % 2) * 2, 0.9, 10, 24), accentMaterial);
-      gate.position.set(((i % 3) - 1) * 26, 8.5 + (i % 2) * 2.5, -i * 180 - 120);
-      gate.rotation.x = Math.PI / 2;
-      group.add(gate);
+    for (let i = 0; i < 2; i += 1) {
+      const z = -58 - i * 66;
+      const overpass = new Mesh(new BoxGeometry(baseWidth + 18, 2.2, 12), detailMaterial);
+      overpass.position.set(0, 15 + i * 2, z);
+      group.add(overpass);
+    }
+  }
 
-      const leftWall = new Mesh(new BoxGeometry(6, 20, 10), pylonMaterial);
-      leftWall.position.set(gate.position.x - 18, 1, gate.position.z);
-      group.add(leftWall);
+  private populateCanyonChunk(
+    group: Group,
+    chunkIndex: number,
+    baseWidth: number,
+    sideMaterial: MeshStandardMaterial,
+    detailMaterial: MeshStandardMaterial,
+    accentMaterial: MeshStandardMaterial,
+  ) {
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < 4; i += 1) {
+        const seed = chunkIndex * 41 + i * 17 + (side === -1 ? 5 : 13);
+        const width = seededRange(seed, 16, 34);
+        const height = seededRange(seed + 1, 24, 52);
+        const depth = seededRange(seed + 2, 22, 42);
+        const x = side * seededRange(seed + 3, baseWidth * 0.62, 34);
+        const z = -24 - i * 36;
 
-      const rightWall = leftWall.clone();
-      rightWall.position.x = gate.position.x + 18;
-      group.add(rightWall);
+        const cliff = new Mesh(new BoxGeometry(width, height, depth), sideMaterial);
+        cliff.position.set(x, height * 0.5 - 8.5, z);
+        cliff.rotation.z = side * seededRange(seed + 4, 0.08, 0.22);
+        group.add(cliff);
+
+        const spur = new Mesh(new BoxGeometry(width * 0.55, height * 0.4, depth * 0.5), detailMaterial);
+        spur.position.set(x - side * width * 0.25, cliff.position.y + height * 0.18, z - depth * 0.18);
+        spur.rotation.z = -side * 0.14;
+        group.add(spur);
+      }
     }
 
-    return group;
+    for (let i = 0; i < 2; i += 1) {
+      const z = -44 - i * 62;
+      const gateway = new Mesh(new BoxGeometry(baseWidth + 8, 1.8, 10), accentMaterial);
+      gateway.position.set(0, 10 + i * 2.5, z);
+      group.add(gateway);
+
+      const pillarLeft = new Mesh(new BoxGeometry(4.2, 18, 7), detailMaterial);
+      pillarLeft.position.set(-(baseWidth * 0.5 + 3), 0.5, z);
+      group.add(pillarLeft);
+
+      const pillarRight = pillarLeft.clone();
+      pillarRight.position.x = baseWidth * 0.5 + 3;
+      group.add(pillarRight);
+    }
+  }
+
+  private populateForestChunk(
+    group: Group,
+    chunkIndex: number,
+    baseWidth: number,
+    sideMaterial: MeshStandardMaterial,
+    detailMaterial: MeshStandardMaterial,
+    accentMaterial: MeshStandardMaterial,
+  ) {
+    const grass = new Mesh(new BoxGeometry(190, 1.8, CHUNK_LENGTH), sideMaterial);
+    grass.position.set(0, -7.9, -CHUNK_LENGTH * 0.5);
+    group.add(grass);
+
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < 8; i += 1) {
+        const seed = chunkIndex * 59 + i * 13 + (side === -1 ? 9 : 19);
+        const trunkHeight = seededRange(seed, 4, 8);
+        const crownHeight = seededRange(seed + 1, 7, 14);
+        const x = side * seededRange(seed + 2, baseWidth * 0.72, 84);
+        const z = -14 - i * 20 - seededRange(seed + 3, 0, 8);
+
+        const trunk = new Mesh(new CylinderGeometry(0.55, 0.75, trunkHeight, 6), detailMaterial);
+        trunk.position.set(x, trunkHeight * 0.5 - 6.8, z);
+        group.add(trunk);
+
+        const crown = new Mesh(new ConeGeometry(crownHeight * 0.5, crownHeight, 6), accentMaterial);
+        crown.position.set(x, trunk.position.y + trunkHeight * 0.5 + crownHeight * 0.4, z);
+        group.add(crown);
+      }
+    }
+
+    for (let i = 0; i < 2; i += 1) {
+      const z = -50 - i * 58;
+      const bridge = new Mesh(new BoxGeometry(baseWidth + 10, 1.6, 9), detailMaterial);
+      bridge.position.set(0, 12 + i * 1.8, z);
+      group.add(bridge);
+
+      const supportLeft = new Mesh(new BoxGeometry(3.6, 16, 4.8), detailMaterial);
+      supportLeft.position.set(-(baseWidth * 0.5 + 4), 0.3, z);
+      group.add(supportLeft);
+
+      const supportRight = supportLeft.clone();
+      supportRight.position.x = baseWidth * 0.5 + 4;
+      group.add(supportRight);
+    }
+  }
+
+  private disposeChunk(group: Group) {
+    group.traverse((child) => {
+      if (child instanceof Mesh) {
+        child.geometry.dispose();
+      }
+    });
+  }
+
+  private getThemeForChunkIndex(chunkIndex: number): RunwayTheme {
+    const band = Math.floor(chunkIndex / THEME_SPAN);
+    const rotation = band % 3;
+    if (rotation === 0) {
+      return "city";
+    }
+    if (rotation === 1) {
+      return "canyon";
+    }
+    return "forest";
   }
 
   private setupGui() {
@@ -343,7 +600,42 @@ export class App {
     this.ship.position.copy(state.position);
     this.ship.quaternion.copy(state.orientation);
 
+    this.updateRunway(state.position.z);
+    this.updateEnvironment(dt, state.position.z);
     this.updateCamera(dt);
+  }
+
+  private updateRunway(playerZ: number) {
+    const playerChunk = Math.max(0, Math.floor(-playerZ / CHUNK_LENGTH));
+    let maxChunkIndex = playerChunk;
+    for (const chunk of this.runwayChunks) {
+      if (chunk.chunkIndex > maxChunkIndex) {
+        maxChunkIndex = chunk.chunkIndex;
+      }
+    }
+
+    for (const chunk of this.runwayChunks) {
+      if (chunk.chunkIndex < playerChunk - RECYCLE_DISTANCE) {
+        maxChunkIndex += 1;
+        this.rebuildChunk(chunk, maxChunkIndex);
+      }
+    }
+
+    this.currentTheme = this.getThemeForChunkIndex(playerChunk);
+  }
+
+  private updateEnvironment(dt: number, playerZ: number) {
+    const palette = THEME_PALETTES[this.getThemeForChunkIndex(Math.max(0, Math.floor(-playerZ / CHUNK_LENGTH)))];
+    ENVIRONMENT_COLOR.setHex(palette.background);
+    const background = this.scene.background;
+    if (background instanceof Color) {
+      background.lerp(ENVIRONMENT_COLOR, 1 - Math.exp(-1.6 * dt));
+    }
+
+    ENVIRONMENT_COLOR.setHex(palette.fog);
+    if (this.scene.fog) {
+      this.scene.fog.color.lerp(ENVIRONMENT_COLOR, 1 - Math.exp(-1.8 * dt));
+    }
   }
 
   private updateCamera(dt: number) {
@@ -358,14 +650,14 @@ export class App {
     this.camera.updateProjectionMatrix();
 
     LOCAL_CAMERA_OFFSET.set(
-      -inputState.yaw * 1.2,
-      this.config.camera.cameraFollowHeight + 0.6 + speedRatio * 0.55,
-      this.config.camera.cameraFollowDistance + 2.8 + speedRatio * 2.4,
+      -inputState.yaw * 0.85,
+      this.config.camera.cameraFollowHeight + 0.12 + speedRatio * 0.2,
+      this.config.camera.cameraFollowDistance - 3.2 + speedRatio * 0.8,
     );
     CAMERA_OFFSET.copy(LOCAL_CAMERA_OFFSET).applyQuaternion(state.orientation);
     CAMERA_TARGET.copy(state.position).add(CAMERA_OFFSET);
 
-    SHIP_DRIFT.copy(state.right).multiplyScalar(-inputState.yaw * 1.35);
+    SHIP_DRIFT.copy(state.right).multiplyScalar(-inputState.yaw * 0.55);
     CAMERA_TARGET.add(SHIP_DRIFT);
 
     const cameraBlend = 1 - Math.exp(-this.config.camera.cameraPositionLagK * dt);
@@ -378,9 +670,12 @@ export class App {
       VELOCITY_LOOK.normalize();
     }
 
-    FORWARD_LOOK.copy(state.forward).multiplyScalar(18);
-    UP_LOOK.copy(state.up).multiplyScalar(1.2);
-    const lookTarget = LOOK_POINT.copy(state.position).add(FORWARD_LOOK).add(UP_LOOK).add(VELOCITY_LOOK.multiplyScalar(8));
+    FORWARD_LOOK.copy(state.forward).multiplyScalar(10.5);
+    UP_LOOK.copy(state.up).multiplyScalar(0.5);
+    const lookTarget = LOOK_POINT.copy(state.position)
+      .add(FORWARD_LOOK)
+      .add(UP_LOOK)
+      .add(VELOCITY_LOOK.multiplyScalar(3.2));
     const lookBlend = 1 - Math.exp(-this.config.camera.cameraLookLagK * dt);
 
     const currentForward = CAMERA_FORWARD.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
@@ -399,6 +694,7 @@ export class App {
       altitude: state.position.y,
       presetMass: this.config.flight.mass,
       status: state.isCrashed ? "CRASH" : "FLY",
+      zoneLabel: this.currentTheme.toUpperCase(),
       keysHint: "W/S 调目标速度, A/D 偏航, 方向键俯仰, Q/E 横滚, Space 空气刹车, Shift 冲刺",
     });
     this.perfOverlay.update({
@@ -414,4 +710,24 @@ export class App {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
+}
+
+function seededValue(seed: number) {
+  const value = Math.sin(seed * 127.1 + 311.7) * 43758.5453123;
+  return value - Math.floor(value);
+}
+
+function seededRange(seed: number, min: number, max: number) {
+  return min + (max - min) * seededValue(seed);
+}
+
+function makeMaterial(color: number, emissive: number, roughness: number, emissiveIntensity: number) {
+  return new MeshStandardMaterial({
+    color,
+    emissive,
+    emissiveIntensity,
+    flatShading: true,
+    metalness: 0.08,
+    roughness,
+  });
 }

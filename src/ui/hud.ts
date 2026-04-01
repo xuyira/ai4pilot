@@ -6,6 +6,7 @@ type HudState = {
   altitude: number;
   presetMass: number;
   status: string;
+  zoneLabel: string;
   keysHint: string;
 };
 
@@ -28,12 +29,6 @@ export function createHud(root: HTMLDivElement) {
       <div class="hud-panel hud-secondary"></div>
     </div>
     <div class="hud-panel hud-help"></div>
-    <div class="reticle">
-      <div class="reticle-core"></div>
-      <div class="reticle-ring"></div>
-      <div class="reticle-cross reticle-cross-x"></div>
-      <div class="reticle-cross reticle-cross-y"></div>
-    </div>
   `;
   root.append(container);
 
@@ -68,7 +63,7 @@ export function createHud(root: HTMLDivElement) {
         <div class="sys-row"><span>FRAME</span><strong>${state.status}</strong></div>
         <div class="sys-row"><span>MASS</span><strong>${state.presetMass.toFixed(2)}</strong></div>
         <div class="sys-row"><span>MODE</span><strong>CRUISE HOLD</strong></div>
-        <div class="sys-row"><span>ARENA</span><strong>LOW ALT CORRIDOR</strong></div>
+        <div class="sys-row"><span>ZONE</span><strong>${state.zoneLabel}</strong></div>
       `;
       help.textContent = state.keysHint;
     },

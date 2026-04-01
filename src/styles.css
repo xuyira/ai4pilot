@@ -201,54 +201,6 @@ canvas {
     0 16px 34px rgba(0, 0, 0, 0.24);
 }
 
-.reticle {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 130px;
-  height: 130px;
-  transform: translate(-50%, -50%);
-}
-
-.reticle-core {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 10px;
-  height: 10px;
-  border: 1px solid rgba(255, 208, 138, 0.95);
-  transform: translate(-50%, -50%) rotate(45deg);
-  box-shadow: 0 0 16px rgba(255, 183, 77, 0.2);
-}
-
-.reticle-ring {
-  position: absolute;
-  inset: 28px;
-  border: 1px solid rgba(157, 175, 191, 0.38);
-  border-radius: 50%;
-}
-
-.reticle-cross {
-  position: absolute;
-  background: rgba(182, 197, 210, 0.3);
-}
-
-.reticle-cross-x {
-  top: 50%;
-  left: 12px;
-  right: 12px;
-  height: 1px;
-  transform: translateY(-50%);
-}
-
-.reticle-cross-y {
-  left: 50%;
-  top: 12px;
-  bottom: 12px;
-  width: 1px;
-  transform: translateX(-50%);
-}
-
 .perf-overlay {
   position: fixed;
   top: 18px;
